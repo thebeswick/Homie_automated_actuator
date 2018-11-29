@@ -1,0 +1,24 @@
+{
+    "device_id": "myspecialname", 
+    "mqtt": {
+        "auth": true, 
+        "base_topic": "homeassistant/", 
+        "host": "MQTT_BROKER_IP", 
+        "password": "MQTT_BROKER_PASSWORD", 
+        "port": 1883, 
+        "username": "MQTT_BROKER_USER"
+    }, 
+    "name": "Homie automated actuator", 
+    "ota": {
+        "enabled": true
+    }, 
+    "wifi": {
+        "password": "WIFI_PASSWORD", 
+        "ssid": "WIFI_SSID"
+    },
+   "settings": {
+        "lightLimit" : 80,
+        "autoModeEnable" : true,
+        "rainModeEnable" : true
+    }
+}

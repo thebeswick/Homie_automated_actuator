@@ -154,10 +154,10 @@ void loopHandler() {
            LightSensor.setProperty("staticautomode").send(staticAutoMode);
 
         if ((setAutoMode == 1) && (AUTO_MODE_ENABLE == 1)) {
-           if ((lightValue <= readLightLimit) && (openState == 0) && (readRainState == 1) && (millis() - closeOnRainTimer >= 120000UL)) {
+           if ((lightValue <= (readLightLimit - 5)) && (openState == 0) && (readRainState == 1) && (millis() - closeOnRainTimer >= 120000UL)) {
              actuatorTimer = control_actuate("openonlight",1,0,1);
            }
-           if ((lightValue > (readLightLimit - 5)) && (openState == 1)) {
+           if ((lightValue > readLightLimit) && (openState == 1)) {
              actuatorTimer = control_actuate("closeonlight",0,1,0);
            }
          }
