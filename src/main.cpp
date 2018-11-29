@@ -9,8 +9,8 @@
 // int sensor_count;   // used in the Dallas device dicsovery
 // float tempC = 0;  // temperature
 // unsigned long lastTemperatureSent = 0;
-const int STOP_SWITCH = D0;
-const int LIMIT_SWITCH = D4;
+const int STOP_SWITCH = D4;
+const int LIMIT_SWITCH = D0;
 const int AUTO_MODE = D2;
 const int ACTUATE_OPEN = D1;
 const int MOTORA = D6;
@@ -40,6 +40,7 @@ const int OFF_INTERVAL = 10;
 
 unsigned long actuatorTimer = millis();
 unsigned long sensorTimer = millis();
+unsigned long closeOnRainTimer = millis();
 
 HomieNode ActuatorSwitch("actuatorswitch", "switch");
 HomieNode AutoMode("automode", "switch");
@@ -83,9 +84,9 @@ void loopHandler() {
   bool modeState = autoDebounce.fell();
   int actuatorValue = actuateDebounce.read();
   bool actuatorState = actuateDebounce.fell();
-  int stopValue = stopDebounce.read();
+//  int stopValue = stopDebounce.read();
   bool stopState = stopDebounce.fell();
-  int limitValue = limitDebounce.read();
+//  int limitValue = limitDebounce.read();
 // use fell when limit switch is NO when in closed position
 //  bool limitState = limitDebounce.fell();
 // use rise when limit switch is NC when in closed position
@@ -105,13 +106,13 @@ void loopHandler() {
      lastActuatorValue = actuatorValue;
      Serial.println("stuck in tv switch loop");
      if (openState == 0) {
-             bool state = (value == "OPEN");
+//             bool state = (value == "OPEN");
              value = "OPEN";
              Serial.println("Entering open loop");
              actuatorTimer = control_actuate("OPEN",1,0,1);
      }
      else if (openState == 1) {
-             bool state = (value == "CLOSE");
+//             bool state = (value == "CLOSE");
              value = "CLOSE";
              Serial.println("Entering close loop");
              actuatorTimer = control_actuate("CLOSE",0,1,0);
@@ -153,25 +154,26 @@ void loopHandler() {
            LightSensor.setProperty("staticautomode").send(staticAutoMode);
 
         if ((setAutoMode == 1) && (AUTO_MODE_ENABLE == 1)) {
-           if ((lightValue <= readLightLimit) && (openState == 0) && (readRainState == 1)) {
-             control_actuate("openonlight",1,0,1);
+           if ((lightValue <= readLightLimit) && (openState == 0) && (readRainState == 1) && (millis() - closeOnRainTimer >= 120000UL)) {
+             actuatorTimer = control_actuate("openonlight",1,0,1);
            }
-           if ((lightValue > readLightLimit) && (openState == 1)) {
-             control_actuate("closeonlight",0,1,0);
+           if ((lightValue > (readLightLimit - 5)) && (openState == 1)) {
+             actuatorTimer = control_actuate("closeonlight",0,1,0);
            }
          }
          else if (setAutoMode == 0) {
            Serial.println("auto mode is off");
          }
-         if (readRainState == 0) {
+         if ((readRainState == 0) && (openState == 1)) {
            Serial.println("It's raining");
-           control_actuate("closeonrain",0,1,0);
+           actuatorTimer = control_actuate("closeonrain",0,1,0);
+           closeOnRainTimer = millis();
          }
-           actuatorTimer = millis();
+//           actuatorTimer = millis();
            sensorTimer = millis();
          }
 // ################ Check timer and turn off if expired ###################
-        if ((millis() - actuatorTimer >= OFF_INTERVAL * 3000UL) && (timerStat == 1)) {
+        if ((millis() - actuatorTimer >= OFF_INTERVAL * 2000UL) && (timerStat == 1)) {
             Serial.println("Turning off power");
             actuatorTimer = control_actuate("STOP",0,0,openState);
             timerStat = 0;
