@@ -1,14 +1,4 @@
 #include <Homie.h>
-// #include <DallasTemperature.h>
-// #define ONE_WIRE_BUS D5
-
-// OneWire oneWire(ONE_WIRE_BUS);
-// DallasTemperature sensors(&oneWire);
-// String ProbeName[5];
-// String ProbeAddress;
-// int sensor_count;   // used in the Dallas device dicsovery
-// float tempC = 0;  // temperature
-// unsigned long lastTemperatureSent = 0;
 const int STOP_SWITCH = D4;
 const int LIMIT_SWITCH = D0;
 const int AUTO_MODE = D2;
@@ -20,6 +10,8 @@ const int RAIN_SENSE = D5;
 const int LIGHT_SENSE = A0;
 const int DEFAULT_LIGHT_LIMIT = 80;
 bool AUTO_MODE_ENABLE = 0;
+bool RAIN_SENSOR_SOURCE = 0;
+bool START_MODE = 1;
 
 bool openState = 0; // 0 = closed 1 = open
 bool timerStat = 0;
@@ -46,25 +38,10 @@ HomieNode ActuatorSwitch("actuatorswitch", "switch");
 HomieNode AutoMode("automode", "switch");
 HomieNode RainSensor("rainsensor", "sensor");
 HomieNode LightSensor("lightsensor", "sensor");
-// HomieNode temperatureNode("temperature", "temperature");
 HomieSetting<long> lightLimitSetting("lightLimit", "Set the light value to open close");
 HomieSetting<bool> autoModeEnable("autoModeEnable", "Persistently set if an automated device");
-HomieSetting<bool> RainSensorMode("rainModeEnable", "Persistently set rain sensor automation");
-
-// HomieSetting<long> Rainsensor("testsensornode", "set Persistently");
-// ############### Function to set up temp sensors #############################
-/* String deviceToStr(const uint8_t* Probe01)
-{
-  String result;
-  for (int i = 0; i < 6; ++i) {
-    result += String(Probe01[i], 16);
-  }
-  return result;
-}
-// ############# Homie Setup Loop ########################
-void setupHandler() {
-  temperatureNode.setProperty("unit").send("c");
-} */
+HomieSetting<bool> rainSensorMode("rainModeEnable", "Persistently set rain sensor automation");
+HomieSetting<bool> rainSensorSource("rainSensorSource", "Set rain detection to internal 0 or external 1");
 
 // ############### Function to open close and set open/close state #############
 float control_actuate(String state, bool motora, bool motorb, bool openStateIn){
@@ -84,15 +61,11 @@ void loopHandler() {
   bool modeState = autoDebounce.fell();
   int actuatorValue = actuateDebounce.read();
   bool actuatorState = actuateDebounce.fell();
-//  int stopValue = stopDebounce.read();
   bool stopState = stopDebounce.fell();
-//  int limitValue = limitDebounce.read();
 // use fell when limit switch is NO when in closed position
 //  bool limitState = limitDebounce.fell();
 // use rise when limit switch is NC when in closed position
   bool limitState = limitDebounce.rose();
-//  int rainValue = rainDebounce.read();
-//  bool rainState = rainDebounce.fell();
 
   if ((limitState == 1) && (setAutoMode == true)) {
     actuatorTimer = control_actuate("limit",0,0,openState);
@@ -154,8 +127,9 @@ void loopHandler() {
            LightSensor.setProperty("staticautomode").send(staticAutoMode);
 
         if ((setAutoMode == 1) && (AUTO_MODE_ENABLE == 1)) {
-           if ((lightValue <= (readLightLimit - 5)) && (openState == 0) && (readRainState == 1) && (millis() - closeOnRainTimer >= 120000UL)) {
+           if ((lightValue <= (readLightLimit - 15)) && (openState == 0) && ((readRainState == 1) && (millis() - closeOnRainTimer >= 120000UL)) || START_MODE == 1) {
              actuatorTimer = control_actuate("openonlight",1,0,1);
+             START_MODE = 0;
            }
            if ((lightValue > readLightLimit) && (openState == 1)) {
              actuatorTimer = control_actuate("closeonlight",0,1,0);
@@ -164,23 +138,23 @@ void loopHandler() {
          else if (setAutoMode == 0) {
            Serial.println("auto mode is off");
          }
-         if ((readRainState == 0) && (openState == 1)) {
+           if ((readRainState == 0) && (openState == 1) && (RAIN_SENSOR_SOURCE == 0)) {
+  //         if ((readRainState == 0) && (openState == 1)) {
            Serial.println("It's raining");
            actuatorTimer = control_actuate("closeonrain",0,1,0);
            closeOnRainTimer = millis();
+           delay(1);
          }
-//           actuatorTimer = millis();
+
            sensorTimer = millis();
          }
 // ################ Check timer and turn off if expired ###################
-        if ((millis() - actuatorTimer >= OFF_INTERVAL * 2000UL) && (timerStat == 1)) {
+        if ((millis() - actuatorTimer) >= (OFF_INTERVAL * 2000UL) && (timerStat == 1)) {
             Serial.println("Turning off power");
             actuatorTimer = control_actuate("STOP",0,0,openState);
             timerStat = 0;
                   }
-
-}
-
+} // End of loopHandler
 // ############## Handler for the Actuator MQTT callback ########
 bool ActuatorHandler(const HomieRange& range, const String& value) {
         if (value != "OPEN" && value != "CLOSE" && value != "STOP") return false;
@@ -214,8 +188,11 @@ bool ModeHandler(const HomieRange& range, const String& value) {
       AutoMode.setProperty("state").send(setAutoMode ? "true" : "false");
 }
 // ############## Handler for the Rain MQTT callback ########
+// Still needs some work as rain sensor will override
+// Will add new conf parameter to use internal or external rain
+// monitoring
 bool RainHandler(const HomieRange& range, const String& value) {
-    if (value != "true" && value != "false") return false;
+    if (value != "true" && value != "false" && RAIN_SENSOR_SOURCE == 0) return false;
     if (value == "true") {
       setRainMode = true;
       control_actuate("raining",0,1,0);
@@ -225,8 +202,6 @@ bool RainHandler(const HomieRange& range, const String& value) {
       control_actuate("rainstop",1,0,1);
     }
     RainSensor.setProperty("state").send(setAutoMode ? "true" : "false");
-    openState = 0;
-
 }
 void setup() {
   Serial.begin(115200);
@@ -250,14 +225,7 @@ void setup() {
   stopDebounce.interval(50);
   limitDebounce.attach(LIMIT_SWITCH);
   limitDebounce.interval(50);
-//  rainDebounce.attach(RAIN_SENSE);
-//  rainDebounce.interval(50);
-  // sensors.begin();
-  // sensor_count = sensors.getDeviceCount();
-
-
-  Homie_setFirmware("actuator_controller", "1.0.1");
-  // Homie.setSetupFunction(setupHandler).setLoopFunction(loopHandler);
+  Homie_setFirmware("actuator_controller", "1.0.3");
   Homie.setLoopFunction(loopHandler);
   ActuatorSwitch.advertise("state").settable(ActuatorHandler);
   AutoMode.advertise("state").settable(ModeHandler);
@@ -266,6 +234,7 @@ void setup() {
   return (candidate >= 0) && (candidate <= 100);
   });
   autoModeEnable.setDefaultValue(AUTO_MODE_ENABLE);
+  rainSensorSource.setDefaultValue(RAIN_SENSOR_SOURCE);
   Homie.setup();
   AUTO_MODE_ENABLE = autoModeEnable.get();
   if (AUTO_MODE_ENABLE == 1) {
@@ -276,18 +245,7 @@ void setup() {
       setAutoMode = 0;
       digitalWrite(AUTO_STAT_LED, LOW);
     }
-
-  /* int c = 0;
-       for(c=0; c<sensor_count; c++) {
-          DeviceAddress tempAddress;
-          sensors.getAddress(tempAddress, c);
-          ProbeName[c] = deviceToStr(tempAddress);
-
-
-         temperatureNode.advertise(ProbeName[c].c_str());
-       }
-       temperatureNode.advertise("unit");
-       temperatureNode.advertise("degrees"); */
+    RAIN_SENSOR_SOURCE = rainSensorSource.get();
 }
 
 void loop() {
@@ -296,5 +254,4 @@ void loop() {
   actuateDebounce.update();
   stopDebounce.update();
   limitDebounce.update();
-//  rainDebounce.update();
 }
