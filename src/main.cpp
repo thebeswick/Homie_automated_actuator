@@ -20,6 +20,7 @@ Bounce autoDebounce = Bounce(); // Bounce is built into Homie, so you can use it
 Bounce actuateDebounce = Bounce();
 Bounce stopDebounce = Bounce();
 Bounce limitDebounce = Bounce();
+bool debug = 1;
 // Bounce rainDebounce = Bounce();
 int lastModeValue = -1;
 int lastActuatorValue = -1;
@@ -42,6 +43,7 @@ HomieSetting<long> lightLimitSetting("lightLimit", "Set the light value to open 
 HomieSetting<bool> autoModeEnable("autoModeEnable", "Persistently set if an automated device");
 HomieSetting<bool> rainSensorMode("rainModeEnable", "Persistently set rain sensor automation");
 HomieSetting<bool> rainSensorSource("rainSensorSource", "Set rain detection to internal 0 or external 1");
+HomieSetting<bool> positionState("positionState", "Indicate whether roof open - 1 or closed - 0");
 
 // ############### Function to open close and set open/close state #############
 float control_actuate(String state, bool motora, bool motorb, bool openStateIn){
@@ -66,32 +68,34 @@ void loopHandler() {
 //  bool limitState = limitDebounce.fell();
 // use rise when limit switch is NC when in closed position
   bool limitState = limitDebounce.rose();
-
+// ##### This loop performs automatic operations when in auto mode
   if ((limitState == 1) && (setAutoMode == true)) {
-    actuatorTimer = control_actuate("limit",0,0,openState);
+    actuatorTimer = control_actuate("limit",0,0,1);
   }
   if (stopState == 1) {
     actuatorTimer = control_actuate("stop",0,0,openState);
   }
+
+  // Operate Actuator manually if automode is set to off
   if ((actuatorState == 1) && (setAutoMode == 0)) {
      String value = "na";
      Homie.getLogger() << "Actuator state " << (actuatorValue ? "open" : "close") << endl;
      lastActuatorValue = actuatorValue;
-     Serial.println("stuck in tv switch loop");
      if (openState == 0) {
 //             bool state = (value == "OPEN");
              value = "OPEN";
-             Serial.println("Entering open loop");
-             actuatorTimer = control_actuate("OPEN",1,0,1);
+             actuatorTimer = control_actuate("OPEN MANUAL",1,0,1);
      }
      else if (openState == 1) {
 //             bool state = (value == "CLOSE");
              value = "CLOSE";
              Serial.println("Entering close loop");
-             actuatorTimer = control_actuate("CLOSE",0,1,0);
+             actuatorTimer = control_actuate("CLOSE MANUAL",0,1,0);
 
      }
   }
+  // ######### End of manual operate #########################
+
   // ########## Toggle Automatic mode on/off #################
   if ((modeState == 1) && (AUTO_MODE_ENABLE == 1)) {
     lastModeValue = modeValue;
@@ -120,14 +124,19 @@ void loopHandler() {
 
            int lightValue;
            lightValue = map(lightRead,0,1023,0,100);
-           String lightValueStr = String(lightValue);
-           String staticAutoMode = String(AUTO_MODE_ENABLE);
+
+       if (debug == 1) {
+         String lightValueStr = String(lightValue);
+         String staticAutoMode = String(AUTO_MODE_ENABLE);
+         String openStateStr = String(openState);
            LightSensor.setProperty("limit").send(readLightLimitStr);
            LightSensor.setProperty("value").send(lightValueStr);
            LightSensor.setProperty("staticautomode").send(staticAutoMode);
-
+           ActuatorSwitch.setProperty("positionState").send(openStateStr);
+       }
         if ((setAutoMode == 1) && (AUTO_MODE_ENABLE == 1)) {
-           if ((lightValue <= (readLightLimit - 15)) && (openState == 0) && ((readRainState == 1) && (millis() - closeOnRainTimer >= 120000UL)) || START_MODE == 1) {
+           if (((lightValue <= readLightLimit - 15) && (openState == 0) && (readRainState == 1)) && ((millis() - closeOnRainTimer >= 120000UL) || (START_MODE == 1))) {
+//   if ((lightValue <= (readLightLimit - 15)) && ((readRainState == 1) && (millis() - closeOnRainTimer >= 120000UL)) || START_MODE == 1) {
              actuatorTimer = control_actuate("openonlight",1,0,1);
              START_MODE = 0;
            }
@@ -151,7 +160,7 @@ void loopHandler() {
 // ################ Check timer and turn off if expired ###################
         if ((millis() - actuatorTimer) >= (OFF_INTERVAL * 2000UL) && (timerStat == 1)) {
             Serial.println("Turning off power");
-            actuatorTimer = control_actuate("STOP",0,0,openState);
+            actuatorTimer = control_actuate("TIMED STOP",0,0,openState);
             timerStat = 0;
                   }
 } // End of loopHandler
@@ -168,7 +177,7 @@ if (value == "CLOSE") {
 }
 if (value == "STOP") {
         Serial.println("Actuator Stop");
-        control_actuate(value,0,0,0);
+        control_actuate(value,0,0,openState);
 }
 //        openState = !openState;
         return true;
@@ -235,6 +244,7 @@ void setup() {
   });
   autoModeEnable.setDefaultValue(AUTO_MODE_ENABLE);
   rainSensorSource.setDefaultValue(RAIN_SENSOR_SOURCE);
+  positionState.setDefaultValue(debug);
   Homie.setup();
   AUTO_MODE_ENABLE = autoModeEnable.get();
   if (AUTO_MODE_ENABLE == 1) {
